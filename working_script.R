@@ -117,7 +117,8 @@ data$cropexp_clean <- ifelse(data$cropdmgexp=="K",1E3,
                       ifelse(data$cropdmgexp=="2",1E2,1))))))
 
 # 2f. esitmation of human value (source: en.wikipedia.org/wiki/Value_of_life)
-data$human_cost <- 7E6
+data$human_cost <- rep(7E6,nrow(data))
+
 
 ################################################################################
 # Step 2 - Summarise by Injury/Death
