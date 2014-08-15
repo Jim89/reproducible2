@@ -33,6 +33,32 @@ data<-read.csv("./data/repdata-data-StormData.csv",
                )
 
 ################################################################################
+# Step 1b - initial explorations
+################################################################################
+nrow(data)
+
+# events - find all the values of event type
+data %.%
+group_by(evtype) %.%
+summarise(count = n(),
+          prop = 100*count/nrow(data)) %.%
+arrange(-count) %.%
+head(25)
+
+# property - find all the values of property exponents
+data %.%
+group_by(propdmgexp) %.%
+summarise(count = n()) %.%
+arrange(-count)
+
+# crops - find all the values of property exponents
+data %.%
+group_by(cropdmgexp) %.%
+summarise(count = n()) %.%
+arrange(-count)
+
+
+################################################################################
 # Step 2 - Process the data
 ################################################################################
 # 2a. make data field names lower case
@@ -40,12 +66,6 @@ names(data) <- tolower(names(data))
 
 # 2b. make evtype values all lower
 data$evtype <- tolower(data$evtype)
-
-# property
-sqldf("select distinct propdmgexp, count(*) from data group by propdmgexp order by 2 desc")
-
-# crops
-sqldf("select distinct cropdmgexp, count(*) from data group by cropdmgexp order by 2 desc")
 
 # 2c. replace some of the event types to clean up data
 data$evtype_clean <-  ifelse(data$evtype=="tstm wind","high wind",
@@ -76,12 +96,6 @@ data$cropexp_clean <- ifelse(data$cropdmgexp=="K",1E3,
                       ifelse(data$cropdmgexp=="M",1E6,
                       ifelse(data$cropdmgexp=="m",1E6,
                       ifelse(data$cropdmgexp=="B",1e9,1)))))
-
-
-
-
-
-
 
 ################################################################################
 # Step 2 - Summarise by Injury/Death
