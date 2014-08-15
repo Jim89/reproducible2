@@ -41,22 +41,13 @@ names(data) <- tolower(names(data))
 # 2b. make evtype values all lower
 data$evtype <- tolower(data$evtype)
 
-
-# look at the top 20 types
-ev_sum <- data %.%
-  select(evtype,fatalities,injuries,propdmg,cropdmg) %.%
-  group_by(evtype) %.%
-  summarise(affected=sum(fatalities,injuries)) %.%
-  arrange(-affected)
-head(ev_sum,20)
-# looks like within the top 20 there are several duplicates  - have to clean up
-
-
 # property
-unique(data$propdmgexp)
 sqldf("select distinct propdmgexp, count(*) from data group by propdmgexp order by 2 desc")
 
-# 2b. replace some of the event types to clean up data
+# crops
+sqldf("select distinct cropdmgexp, count(*) from data group by cropdmgexp order by 2 desc")
+
+# 2c. replace some of the event types to clean up data
 data$evtype_clean <-  ifelse(data$evtype=="tstm wind","high wind",
                       ifelse(data$evtype=="heat","excessive heat",
                       ifelse(data$evtype=="flood","floods",       
@@ -66,14 +57,35 @@ data$evtype_clean <-  ifelse(data$evtype=="tstm wind","high wind",
                       ifelse(data$evtype=="hail","winter storm",
                       ifelse(data$evtype=="heavy snow","winter storm",
                       ifelse(data$evtype=="thunderstorm winds","high wind",
-                      ifelse(data$evtype=="blizzard","winter storms",
+                      ifelse(data$evtype=="blizzard","winter storm",
                       ifelse(data$evtype=="wild/forest fire","wildfire",
                       ifelse(data$evtype=="strong wind","high wind",
-                             data$evtype))))))))))))
+                      ifelse(data$evtype=="winter storms","winter storm",
+                             data$evtype)))))))))))))
 # 2d. make all uppercase
 data$evtype_clean <- toupper(data$evtype_clean)
 
+# 2e. recode property damage exponenets
+data$propexp_clean <- ifelse(data$propdmgexp=="K",1E3,
+                      ifelse(data$propdmgexp=="M",1E6,
+                      ifelse(data$propdmgexp=="B",1E9,
+                      ifelse(data$propdmgexp=="m",1E6,1))))
 
+data$cropexp_clean <- ifelse(data$cropdmgexp=="K",1E3,
+                      ifelse(data$cropdmgexp=="k",1E3,
+                      ifelse(data$cropdmgexp=="M",1E6,
+                      ifelse(data$cropdmgexp=="m",1E6,
+                      ifelse(data$cropdmgexp=="B",1e9,1)))))
+
+
+
+
+
+
+
+################################################################################
+# Step 2 - Summarise by Injury/Death
+################################################################################
 ev_sum <- data %.%
           select(evtype_clean,fatalities,injuries) %.%
           group_by(evtype_clean) %.%
@@ -84,7 +96,7 @@ ev_sum <- data %.%
           transform(evtype_clean = reorder(evtype_clean,order(affected,decreasing=T))) %.%
           select(-affected)
 
-ev_sum <- melt(ev_sum[1:15,],
+ev_sum <- melt(ev_sum[1:10,],
                id.vars="evtype_clean",
                variable.name="efftype",
                value.name="people")
