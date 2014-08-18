@@ -1,0 +1,472 @@
+---
+output:
+  html_document:
+    keep_md: yes
+  word_document: default
+---
+# Assessing the Damage
+### An analysis of the effects of extreme weather
+##### Jim Leach 
+*******************************************************************************
+
+### Synopsis
+This report has been created for an assigment set as part of the *Reproducible Research* MOOC from Johns Hopkins university on [Coursera](https://class.coursera.org/repdata-004). 
+
+The goal was to take historical weather event data and perform some brief exploratory analysis using R. 
+
+The following points had to be addressed:
+
+* Across the United States, which types of events are most harmful with respect to population health?
+* Across the United States, which types of events have the greatest economic consequences?
+
+An additional overall comparison combining human and economic consequences has been performed, using data from Wikipedia on the [value of life](http://en.wikipedia.org/wiki/Value_of_life). In each case, only the results for the top 10 events with the most impact have been presented.
+
+This report will address each of these points and is structured as follows:
+
+* An overview of the analysis methods.
+* A presentation of the results.
+
+*******************************************************************************
+### Data Processing
+
+The methodology of the analysis was to break the code up in to discrete steps. These steps were:
+
+0. Prepare the R working environment
+1. Obtain and load the data;
+2. Process the data;
+3. Summarise events by human cost;
+4. Summarise events by economic cost; and
+5. Summarise events by human and economic cost combined.
+
+The following sections set out the detailed approach for each stage of the analysis.
+
+##### Step 0 - Preparing the R working environment and package loading
+
+A number of packages were used and are therefore required for this analysis. These packages were:
+
+* [dplyr]((http://blog.rstudio.org/2014/01/17/introducing-dplyr/))
+* [ggplot2](http://ggplot2.org/)
+* [R.Utils](http://cran.r-project.org/web/packages/R.utils/R.utils.pdf)
+* [reshape2](http://seananderson.ca/2013/10/19/reshape.html)
+
+Conditional installation and subsequent loading of these packages was achieved with:
+
+    if(require("package name here",quietly=T)){
+      print("loading "package name here"")
+    } else {
+      print("trying to install "package name here"")
+      install.packages(""package name here"")
+      library("package name here",quietly=T)
+      print(""package name here" installed and loaded")
+      if(require("package name here",quietly=T)){
+        } else {
+        stop("could not install "package name here"")
+      }
+    }
+    
+For more information about any of these packages, see their documentation using `help(package="package name here")`.
+        
+```{r load_paclages, echo=FALSE,results='hide',message=FALSE}
+library(dplyr,quietly=T)
+library(ggplot2,quietly=T)
+library(R.utils,quietly=T)
+library(reshape2,quietly=T) 
+```
+
+Next, a directory to store the data is created in the working directory:
+```{r create_data_dir}
+if(!file.exists("./data")){dir.create("./data",showWarnings = FALSE)}
+```
+
+##### Step 1i - Getting and loading the data
+
+The data for this analysis are stored [here](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2) and more information about them is available on National Weather Service [page](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf). The download and loading of the data in to R was automated:
+
+```{r get_data, results='hide', warning=FALSE, cache=TRUE}
+# 1a. Set the URL for the data
+url<-"https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+
+# 1b. Download and unzip the data - conditional on operating system
+if(Sys.info()["sysname"]=="Windows"){setInternet2(use = TRUE)}
+if(!file.exists("./data/repdata_data_StormData.csv.bz2"))
+{
+  ifelse(Sys.info()["sysname"]=="Windows",
+         download.file(url,"./data/repdata_data_StormData.csv.bz2",quiet=TRUE),
+         download.file(url,"./data/repdata_data_StormData.csv.bz2",method="curl"
+                       ,quiet=TRUE)
+  )
+  bunzip2("./data/repdata_data_StormData.csv.bz2",
+          "./data/repdata-data-StormData.csv", overwrite = TRUE, remove = FALSE)
+}
+# 1c. Read in the data
+data<-read.csv("./data/repdata-data-StormData.csv",
+               header=T,
+               stringsAsFactors=F
+              )
+```
+
+##### Step 1ii - Initial exploration of the data
+
+Initially, the use of the `str()` function was used to get a sense of the data:
+```{r str_data}
+str(data)
+```
+
+The assigment instructions state that the `evtype` field provides the type of weather event for each record. 
+
+Further, considering both the data dictionary [here](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf) and the questions to be addressed, the following fields in the data were required:
+
+* `fatalities` - the number of fatalities from in the event
+* `injuries` - the number of injuries from each event
+* `propdmg` - the dollar value of property damage in each event
+* `propdmgexp` - the exponent of the property damage field
+* `cropdmg` - the dollar value of crop damage in each event
+* `crpodmgexp` - the exponent of the crop damage field
+
+###### Exploring `evtype`
+
+An overview of the top 25 event types ranked by number of records showed that there are significant issues with clarity in the data. For example, there appeared to be several versions of the "thunderstorm wind" event type:
+
+```{r}
+data %.%
+group_by(EVTYPE) %.%
+summarise(count = n(), prop = 100*count/nrow(data)) %.%
+arrange(-count) %.%
+head(25)
+```
+
+As part of this analysis, a cleaning exercise was performed to group several of these like-event types together. This was done in step 2 below.
+
+###### Exploring `propdmgexp`
+
+```{r propdmgexp_summary}
+data %.%
+  group_by(PROPDMGEXP) %.%
+  summarise(count = n()) %.%
+  arrange(-count)
+```  
+
+The data directionary stated that the values "k","m" and "b" represent thousands, millions and billions of dollars respctively. Considering the other values, numeric values were assumed to be the exponent, i.e. a "2" would be one hundred, a "3" one thousand etc. All other values were assumed to represent an exponent of 1. Cleaning of these values was performed in step 2.
+
+###### Exploring `cropdmgexp`
+
+```{r cropdmgexp_summary}
+data %.%
+  group_by(CROPDMGEXP) %.%
+  summarise(count = n()) %.%
+  arrange(-count)
+```
+
+Similar to for `propdmgexp`, the values for `cropdmgexp` were also cleaned in step 2. The same assumptions were made as for `propdmgexp`.
+
+
+##### Step 2 - Process the data
+
+The data read in to R were cleaned and processed. Initially names and some data fields were set to lowercase, simply to facilitate typing ease:
+
+```{r data_clean_lowcase}
+# 2a. make data field names lower case
+names(data) <- tolower(names(data))
+
+# 2b. make evtype values all lower
+data$evtype <- tolower(data$evtype)
+```
+
+Next, various event types were cleaned to a more standard form, to facilitate better grouping of the data later. It should be noted that this exercise was not exhaustive and simply cleaned the data to a state sufficient for some of the most common event types:
+
+```{r data_clean_eventtype, cache=TRUE}
+# 2c. replace some of the event types to clean up data
+data$evtype_clean <- ifelse(data$evtype=="tstm wind","high wind",
+                     ifelse(data$evtype=="heat","excessive heat",
+                     ifelse(data$evtype=="flood","floods",
+                     ifelse(data$evtype=="flash flood","floods",
+                     ifelse(data$evtype=="ice storm","winter storm",
+                     ifelse(data$evtype=="thunderstorm wind","high wind",
+                     ifelse(data$evtype=="hail","winter storm",
+                     ifelse(data$evtype=="heavy snow","winter storm",
+                     ifelse(data$evtype=="thunderstorm winds","high wind",
+                     ifelse(data$evtype=="blizzard","winter storm",
+                     ifelse(data$evtype=="wild/forest fire","wildfire",
+                     ifelse(data$evtype=="strong wind","high wind",
+                     ifelse(data$evtype=="winter storms","winter storm",
+                     ifelse(data$evtype=="storm surge","floods",
+                     ifelse(data$evtype=="hurricane","hurricane/typhoon",
+                     ifelse(data$evtype=="river flood","floods",
+                     ifelse(data$evtype=="tropical storm","hurricane/typhoon",
+                     ifelse(data$evtype=="heavy rains/severe weather",
+                                          "winter storm",
+                     ifelse(data$evtype=="heavy rain/severe weather",
+                                          "winter storm",
+                     ifelse(data$evtype=="storm surge/tide","floods",
+                     ifelse(data$evtype=="hurricane opal","hurricane/typhoon",
+                     ifelse(data$evtype=="tornadoes, tstm wind, hail",
+                                          "winter storm",
+                     ifelse(data$evtype=="severe thunderstorm","winter storm",
+                     ifelse(data$evtype=="frost/freeze","extreme cold",
+                     ifelse(data$evtype=="marine tstm wind","high wind",
+                     ifelse(data$evtype=="winter weather","winter storm",
+                     ifelse(data$evtype=="marine thunderstorm wind","high wind",
+                     data$evtype)))))))))))))))))))))))))))
+
+# 2d. make all uppercase for presentation later
+data$evtype_clean <- toupper(data$evtype_clean)
+```
+
+The values for the property and crop damage exponents were standardised based on the assumptions set out previously:
+```{r data_clean_exponents, cache=TRUE}
+# 2e. recode property damage exponenets
+data$propexp_clean <- ifelse(data$propdmgexp=="K",1E3,
+                      ifelse(data$propdmgexp=="M",1E6,
+                      ifelse(data$propdmgexp=="B",1E9,
+                      ifelse(data$propdmgexp=="m",1E6,
+                      ifelse(data$propdmgexp=="5",1E5,
+                      ifelse(data$propdmgexp=="2",1E2,
+                      ifelse(data$propdmgexp=="7",1E7,
+                      ifelse(data$propdmgexp=="3",1E3,
+                      ifelse(data$propdmgexp=="4",1E4,
+                      ifelse(data$propdmgexp=="6",1E6,
+                      ifelse(data$propdmgexp=="8",1E8,1)))))))))))
+
+data$cropexp_clean <- ifelse(data$cropdmgexp=="K",1E3,
+                      ifelse(data$cropdmgexp=="k",1E3,
+                      ifelse(data$cropdmgexp=="M",1E6,
+                      ifelse(data$cropdmgexp=="m",1E6,
+                      ifelse(data$cropdmgexp=="B",1e9,
+                      ifelse(data$cropdmgexp=="2",1E2,1))))))
+```
+
+Finally, a new field was added to the data to list the median value of a human life, as calculated by various US agencies ([source](en.wikipedia.org/wiki/Value_of_life)). This field was used in the combined analysis of human and economic cost.
+```{r data_clean_humanvalue, cache=TRUE}
+# 2f. esitmation of human value
+data$human_cost <- rep(7E6,nrow(data))
+```
+
+#####  Step 3 - Summarise by Injury/Death
+
+First, the data were summarised, grouping around the cleaned `evtype` value and summing total deaths and injuries:
+```{r ev_sum_summary}
+# 3a. summarise by event type
+ev_sum <- data %.%
+          select(evtype_clean,fatalities,injuries) %.%
+          group_by(evtype_clean) %.%
+          summarise(deaths=sum(fatalities),
+                    injuries=sum(injuries),
+                    affected=sum(deaths,injuries)) %.%
+          arrange(-affected) %.%
+          transform(evtype_clean =
+                      reorder(evtype_clean,order(affected,decreasing=T))) %.%
+          select(-affected)
+```
+
+The resulting data frame was *melted* to a structure suitable for graphing:
+```{r ev_sum_melt}
+# 3b. melt to assist graphing
+ev_sum <- melt(ev_sum[1:10,],
+               id.vars="evtype_clean",
+               variable.name="efftype",
+               value.name="people")
+
+# 3c. set up the factor variable
+ev_sum$efftype <- factor(ev_sum$efftype,levels=c("deaths","injuries"))
+```
+
+The results of this summary are presented in the results section.
+
+#####  Step 4 -  Summarise by property/crop damage
+
+First, the data were summarised, grouping around the cleaned `evtype` value and calculating the total property and crop damage cost from the provided values and the exponents for each:
+```{r ev_sum_eco_summary}
+# 4a. summarise by event type
+ev_sum_eco <- data %.%
+              select(evtype_clean,
+                     propdmg,
+                     propexp_clean,
+                     cropdmg,
+                     cropexp_clean) %.%
+              group_by(evtype_clean) %.%
+              summarise(property=sum(propdmg*propexp_clean), # use exponents
+                        crop=sum(cropdmg*cropexp_clean),
+                        total_cost=sum(property,crop)) %.%
+              arrange(-total_cost) %.%
+              transform(evtype_clean =
+                          reorder(evtype_clean,order(total_cost,decreasing=T)))%.%
+              select(-total_cost)
+```
+
+The resulting data frame was *melted* to a structure suitable for graphing:
+```{r ev_sum_eco_melt}
+# 3b. melt the data frame to suit graphing
+ev_sum_eco <- melt(ev_sum_eco[1:10,],
+               id.vars="evtype_clean",
+               variable.name="dmgtype",
+               value.name="cost")
+# set up factor levels
+ev_sum$efftype <- factor(ev_sum$efftype,levels=c("crop","property"))
+# create a field in millions to aid graphing
+ev_sum_eco$cost_clean <- ev_sum_eco$cost/1E6
+```
+
+The results of this summary are presented in the results section.
+
+#####  Step 5 -  Combine human and economic cost to rank all events
+
+First, the data were summarised, grouping around the cleaned `evtype` value and calculating the total economic cost from the provided values, the exponents for each. The total human cost was calculated using the value of a human life sourced from Wikipedia. Where a fatality was recorded the full value of a human life was used, for an injury only half of this value was used.
+
+```{r ev_sum_both_summary}
+# 5a. summarise by event type
+ev_sum_both <- data %.%
+               select(evtype_clean,
+                      injuries,
+                      fatalities,
+                      human_cost,
+                      propdmg,
+                      propexp_clean,
+                      cropdmg,
+                      cropexp_clean) %.%
+                group_by(evtype_clean) %.%
+                summarise(
+                human_cost = sum((fatalities*human_cost)+(0.5*(injuries*human_cost))),
+                eco_cost = sum((propdmg*propexp_clean)+(cropdmg*cropexp_clean)),
+                total_cost = sum(human_cost,eco_cost)
+                ) %.%
+                arrange(-total_cost) %.%
+                transform(evtype_clean =
+                            reorder(evtype_clean,order(total_cost,decreasing=T))) %.%
+                select(-total_cost)
+```
+
+The resulting data frame was *melted* to a structure suitable for graphing:
+```{r ev_sum_both_melt}
+# 5b. melt the data frame to suit graphing
+ev_sum_both <- melt(ev_sum_both[1:10,],
+                   id.vars="evtype_clean",
+                   variable.name="efftype",
+                   value.name="cost")
+# set up factor levels
+ev_sum_both$efftype <- factor(ev_sum_both$efftype,levels=c("human_cost","eco_cost"))
+# create a field in millions to aid graphing
+ev_sum_both$cost_clean <- ev_sum_both$cost/1E6
+```
+
+The results of this summary are presented in the results section.
+
+*******************************************************************************
+### Results
+#### Summary of Human Cost
+##### Figure 1 - Top 10 Results ranked by total individuals affected
+```{r human_cost_plot}
+# create summary for text underneath figure
+human <- ev_sum %.%
+         group_by(evtype_clean) %.%
+         summarise(total=sum(people)) %.%
+         arrange(-total)
+human_ev <- as.character(human[1,1])
+human_ev_count <- human[1,2]
+rm(human)
+
+# create figure
+options(scipen=100)
+ggplot(data=ev_sum,aes(x=evtype_clean,y=people,fill=efftype))+
+geom_bar(stat="identity")+
+theme_minimal()+
+scale_fill_manual(values=c("firebrick2","firebrick"), name = element_blank(),
+                 breaks = c("deaths","injuries"),labels=c("Deaths","Injuries"))+
+ylab("Individual")+
+ggtitle("Total human cost per event type")+
+scale_y_continuous(breaks=seq(from=0,
+                              to=(max(ev_sum$people)+0.1*max(ev_sum$people)),
+                              by=10000))+
+theme(axis.text.x = element_text(angle = 45, hjust = 1),
+      panel.grid.major.x = element_blank(),
+      legend.position="bottom",
+      axis.title.x=element_blank())
+```
+
+The above figure shows that `r I(human_ev)` is the most harmful event with respect to human injuries a deaths. In total, over the entire data collection period `r I(human_ev_count)` individuals were injured or killed.
+
+
+#### Summary of Economic Cost
+##### Figure 2 - Top 10 Results ranked by total cost of property and crop damage
+```{r eco_cost_plot}
+# create summary for text underneath figure
+eco <- ev_sum_eco %.%
+       group_by(evtype_clean) %.%
+       summarise(total=sum(cost_clean)) %.%
+       arrange(-total)
+eco_ev <- as.character(eco[1,1])
+eco_ev_count <- round(eco[1,2])
+rm(eco)
+
+# create figure
+options(scipen=100)
+ggplot(data=ev_sum_eco,aes(x=evtype_clean,y=cost_clean,fill=dmgtype))+
+geom_bar(stat="identity")+
+theme_minimal()+
+scale_fill_manual(values=c("goldenrod","gold"),name = element_blank(),
+                  breaks = c("crop","property"),
+                  labels=c("Crop Damage","Property Damage"))+
+ylab("m$")+
+ggtitle("Total property cost per event type")+
+scale_y_continuous(breaks=seq(from=0,
+                              to=(max(ev_sum_eco$cost)+0.1*max(ev_sum_eco$cost)),
+                              by=25000))+
+theme(axis.text.x = element_text(angle = 45, hjust = 1),
+      panel.grid.major.x=element_blank(),
+      legend.position="bottom",
+      axis.title.x=element_blank())
+```
+
+The above figure shows that `r I(eco_ev)` is the most harmful event with respect to property and crop damage. In total, over the entire data collection period `r I(eco_ev_count)` m$ worth of damage was caused.
+
+#### Summary of Combined Cost
+##### Figure 3 - Top 10 Results ranked by total combined economic and human cost
+```{r both_cost_plot}
+# create summary for text underneath figure
+eco <- ev_sum_both %.%
+       group_by(evtype_clean) %.%
+       summarise(total=sum(cost_clean)) %.%
+       arrange(-total)
+both_ev <- as.character(eco[1,1])
+both_ev_count <- round(eco[1,2])
+rm(eco)
+
+# create figure
+options(scipen=100)
+ggplot(data=ev_sum_both,aes(x=evtype_clean,y=cost_clean,fill=efftype))+
+geom_bar(stat="identity")+
+theme_minimal()+
+scale_fill_manual(values=c("firebrick","goldenrod"),
+                  name = element_blank(),
+                  breaks = c("human_cost","eco_cost"),
+                  labels=c("Human Cost","Property Cost"))+
+ylab("m$")+
+ggtitle("Total combined human and property cost per event type")+
+scale_y_continuous(breaks=seq(
+  from=0,to=(max(ev_sum_both$cost)+0.1*max(ev_sum_both$cost)),by=25000)
+)+
+theme(axis.text.x = element_text(angle = 45, hjust = 1),
+      panel.grid.major.x=element_blank(),
+      legend.position="bottom",
+      axis.title.x=element_blank()
+)
+```
+
+The above figure shows that `r I(both_ev)` is the most harmful event with respect human and economic costs. In total, over the entire data collection period `r I(both_ev_count)` m$ worth of damage was caused to humans and property.
+
+********************************************************************************
+
+### References and Contact
+
+The complete code and documentation for this assignment can be found on [GitHub](https://github.com/Jim89/RepData_PeerAssessment1) repository. 
+
+The author of this report can be contacted on [twitter](https://twitter.com/leach_jim) 
+
+#### Reproducible Analysis
+
+There are a number of factors that demonstrate the *reproducibility* of this report:
+
+* Package installation and loading is conditional - packages are installed and loaded as required.
+* The code contains steps to download and read in data. This limits manual steps.
+* The code is OS-neutral: wherever possible, it uses conditional logic to ensure compatibility with a range of operating systems.
+* Results are generated and stored to variables or external files automatically, so can be recalled later.
+* This report has written using RMarkdown and will automatically generate figures and report results - nothing has been hard-coded.
