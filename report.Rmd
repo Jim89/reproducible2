@@ -301,7 +301,7 @@ ev_sum_eco <- melt(ev_sum_eco[1:10,],
                variable.name="dmgtype",
                value.name="cost")
 # set up factor levels
-ev_sum$efftype <- factor(ev_sum$efftype,levels=c("crop","property"))
+ev_sum_eco$dmgtype <- factor(ev_sum_eco$dmgtype,levels=c("crop","property"))
 # create a field in millions to aid graphing
 ev_sum_eco$cost_clean <- ev_sum_eco$cost/1E6
 ```
